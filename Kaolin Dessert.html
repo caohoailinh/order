@@ -1,0 +1,1395 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hệ Thống Order - Kaolin Dessert</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Thư viện SheetJS xuất file Excel -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+    <!-- CSS RIÊNG CHO CHẾ ĐỘ IN ẤN (PRINT) -->
+    <style>
+        @media print {
+            body * {
+                visibility: hidden;
+            }
+
+            #printableInvoice, #printableInvoice * {
+                visibility: visible;
+            }
+
+            #printableInvoice {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
+                margin: 0;
+                padding: 10px;
+                box-shadow: none;
+                background: white;
+            }
+
+            .no-print {
+                display: none !important;
+            }
+
+
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans antialiased">
+
+    <!-- 1. Thanh điều hướng (Navbar) -->
+    <header class="bg-white shadow-sm sticky top-0 z-40 no-print">
+        <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap justify-between items-center gap-2">
+            <div class="flex items-center space-x-3">
+                <span class="bg-orange-500 text-white p-2 rounded-xl font-bold"><i class="fa-solid fa-utensils"></i></span>
+                <div>
+                    <h1 class="font-bold text-lg leading-tight">Kaolin Dessert</h1>
+                    <span id="currentTableDisplay" class="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-medium">Take away 01</span>
+                </div>
+            </div>
+
+            <div id="navActionButtons" class="flex items-center space-x-2 sm:space-x-3">
+                <!-- Nút Quản Lý Thực Đơn (Chỉ Admin thấy) -->
+                <button id="btnMenuManager" onclick="toggleMenuManagerModal(true)" class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition shadow-sm flex items-center hidden">
+                    <i class="fa-solid fa-burger mr-1.5"></i> Quản Lý Thực Đơn
+                </button>
+
+                <!-- Nút Xuất Excel (Chỉ Admin thấy) -->
+                <button id="btnExcel" onclick="exportOrdersToExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition shadow-sm flex items-center hidden">
+                    <i class="fa-solid fa-file-excel mr-1.5"></i> Xuất Excel
+                </button>
+
+                <!-- Nút Chuyển Giao Diện Bếp / Menu (Admin thấy) -->
+                <button id="btnViewToggle" onclick="toggleView()" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg text-sm font-medium transition hidden">
+                    <i class="fa-solid fa-kitchen-set mr-1"></i> Vào Bếp
+                </button>
+
+                <!-- Khung Tra Cứu Đơn Hàng trên Navbar -->
+                <div class="flex items-center gap-2">
+    		<!-- Ô nhập mã đơn: Đã giảm chiều cao bằng py-1.5 và text-sm -->
+		    <input type="text" id="navSearchOrderInput" 
+	           class="w-full sm:w-64 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" 
+        	   placeholder="Mã đơn (ORD-1234)...">
+           
+		    <!-- Nút Tra cứu: Đã giảm chiều cao bằng py-1.5 và text-sm -->
+		    <button onclick="fetchAndPrintOldInvoice()" 
+	            class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-1.5 text-sm font-medium rounded-lg flex items-center gap-1.5 transition-colors whitespace-nowrap shadow-sm">
+        		<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        	    	<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+        		</svg>Tra cứu
+		    </button>
+		</div>
+
+                <!-- Nút Giỏ Hàng -->
+                <button id="cartBtn" onclick="toggleCartModal(true)" class="relative bg-orange-500 hover:bg-orange-600 text-white p-2.5 rounded-xl transition">
+                    <i class="fa-solid fa-cart-shopping"></i>
+                    <span id="cartBadge" class="absolute -top-1 -right-1 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center font-bold hidden">0</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- GIAO DIỆN KHÁCH HÀNG -->
+    <div id="customerView" class="max-w-7xl mx-auto px-4 py-6 pb-24">
+        <div class="flex flex-col md:flex-row gap-3 mb-6">
+            <div class="relative flex-1">
+                <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-3.5 text-gray-400"></i>
+                <input type="text" id="searchInput" oninput="handleSearch(event)" placeholder="Tìm kiếm món ăn, đồ uống..." class="w-full pl-10 pr-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-orange-500 transition">
+            </div>
+            <select id="tableSelector" onchange="changeTable(event)" class="bg-white border border-gray-200 px-4 py-2.5 rounded-xl focus:outline-none focus:border-orange-500 font-medium">
+                <option value="Take away 01">Take away 01</option>
+                <option value="Take away 02">Take away 02</option>
+                <option value="Take away 03">Take away 03</option>
+                <option value="Take away 04">Take away 04</option>
+            </select>
+        </div>
+
+        <div class="flex space-x-2 overflow-x-auto pb-3 mb-6">
+            <button onclick="filterCategory('all')" class="cat-btn px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap bg-orange-500 text-white transition" data-cat="all">Tất cả</button>
+            <button onclick="filterCategory('main')" class="cat-btn px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap bg-white text-gray-600 border border-gray-200 transition" data-cat="main">Món chính</button>
+            <button onclick="filterCategory('appetizer')" class="cat-btn px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap bg-white text-gray-600 border border-gray-200 transition" data-cat="appetizer">Khai vị</button>
+            <button onclick="filterCategory('drink')" class="cat-btn px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap bg-white text-gray-600 border border-gray-200 transition" data-cat="drink">Đồ uống</button>
+            <button onclick="filterCategory('dessert')" class="cat-btn px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap bg-white text-gray-600 border border-gray-200 transition" data-cat="dessert">Tráng miệng</button>
+        </div>
+
+        <div id="menuGrid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            <div class="col-span-full text-center py-20 text-gray-400">
+                <i class="fa-solid fa-spinner fa-spin mr-2"></i> Đang tải thực đơn...
+            </div>
+        </div>
+    </div>
+
+    <!-- GIAO DIỆN NHÀ BẾP & QUẢN LÝ -->
+    <div id="kitchenView" class="max-w-7xl mx-auto px-4 py-6 hidden">
+        
+<!-- KHUNG HỘP THÔNG BÁO ĐƠN MỚI (LUÔN HIỆN THỊ ĐỂ DỄ THEO DÕI) -->
+        <div id="notificationCenter" class="bg-amber-50 border border-amber-200 p-4 rounded-2xl mb-6 shadow-sm no-print">
+            <div class="flex justify-between items-center mb-2">
+                <h3 class="font-bold text-amber-800 text-sm flex items-center">
+                    <i class="fa-solid fa-bell text-orange-500 mr-2 animate-bounce"></i> 
+                    Đơn Hàng Mới (<span id="notifCount" class="bg-orange-600 text-white px-1.5 py-0.2 rounded-full text-xs ml-1">0</span>)
+                </h3>
+                <div class="flex items-center space-x-2">
+                    <button onclick="manualCheckNewOrders()" class="bg-orange-500 hover:bg-orange-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center shadow-sm">
+                        <i class="fa-solid fa-sync mr-1.5"></i> Kiểm tra đơn mới
+                    </button>
+                    <button onclick="clearAllNotifications()" class="text-xs text-gray-500 hover:text-red-600 font-medium px-2 py-1">
+                        <i class="fa-solid fa-trash-can mr-1"></i> Xóa hết
+                    </button>
+                </div>
+            </div>
+            <!-- Danh sách các đơn mới (Nếu trống sẽ hiện chữ hướng dẫn) -->
+            <div id="notifList" class="space-y-2 max-h-48 overflow-y-auto pr-1">
+                <p class="text-xs text-amber-700 italic py-2 text-center">Chưa có thông báo đơn hàng mới. Bấm "Kiểm tra đơn mới" để quét dữ liệu.</p>
+            </div>
+        </div>
+
+ 
+
+
+<!-- KHUNG XEM BÁO CÁO DOANH THU TRỰC TIẾP -->
+        <div class="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm mb-6 no-print">
+            <div class="flex flex-col md:flex-row justify-between items-center mb-4 gap-3">
+                <h3 class="font-bold text-gray-800 text-base"><i class="fa-solid fa-chart-line text-orange-500 mr-2"></i> Báo Cáo Doanh Thu Trực Tiếp</h3>
+                
+                <!-- Bộ lọc khoảng thời gian -->
+                <div class="flex flex-wrap items-center gap-2">
+                    <div class="flex items-center space-x-1 text-xs">
+                        <span class="text-gray-500">Từ:</span>
+                        <input type="date" id="reportStartDate" class="border border-gray-200 px-2 py-1.5 rounded-lg text-xs focus:outline-none focus:border-orange-500">
+                    </div>
+                    <div class="flex items-center space-x-1 text-xs">
+                        <span class="text-gray-500">Đến:</span>
+                        <input type="date" id="reportEndDate" class="border border-gray-200 px-2 py-1.5 rounded-lg text-xs focus:outline-none focus:border-orange-500">
+                    </div>
+                    <button onclick="loadLiveRevenueReport()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center shadow-sm">
+                        <i class="fa-solid fa-filter mr-1"></i> Xem Báo Cáo
+                    </button>
+		<button onclick="exportOrdersToExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition flex items-center shadow-sm">
+                    <i class="fa-solid fa-download mr-1"></i> Tải Báo Cáo Excel
+                </button>
+                </div>
+            </div>
+
+            <!-- Tổng kết nhanh số liệu -->
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4 p-3 bg-indigo-50 border border-indigo-100 rounded-xl text-xs">
+                <div>Tổng số đơn: <strong id="repTotalOrders" class="text-indigo-700 font-bold">0</strong></div>
+                <div>Tổng số lượng món: <strong id="repTotalQty" class="text-indigo-700 font-bold">0</strong></div>
+                <div>Tổng doanh thu lọc: <strong id="repTotalRevenue" class="text-indigo-700 font-bold text-sm">0 đ</strong></div>
+            </div>
+
+            <!-- Bảng hiển thị chi tiết doanh thu -->
+            <div class="overflow-x-auto border rounded-xl max-h-80">
+                <table class="w-full text-left border-collapse text-xs">
+                    <thead>
+                        <tr class="bg-gray-100 text-gray-700 border-b sticky top-0">
+                            <th class="p-2.5 text-center w-10">STT</th>
+                            <th class="p-2.5">Ngày</th>
+                            <th class="p-2.5">Thời gian</th>
+                            <th class="p-2.5">Mã ĐH</th>
+                            <th class="p-2.5">Bàn</th>
+                            <th class="p-2.5">Khách hàng</th>
+                            <th class="p-2.5">Tên món</th>
+                            <th class="p-2.5 text-center">SL</th>
+                            <th class="p-2.5 text-right">Đơn giá</th>
+                            <th class="p-2.5 text-right">Thành tiền</th>
+                            <th class="p-2.5">Giao đến</th>
+                        </tr>
+                    </thead>
+                    <tbody id="liveReportTableBody" class="divide-y divide-gray-100">
+                        <tr>
+                            <td colspan="11" class="text-center py-8 text-gray-400">Vui lòng chọn khoảng thời gian và bấm "Xem Báo Cáo".</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+       
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+            <div class="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+                <span class="text-gray-500 text-sm">Đơn chờ nấu</span>
+                <h3 id="statPending" class="text-2xl font-bold text-orange-600">0</h3>
+            </div>
+            <div class="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+                <span class="text-gray-500 text-sm">Đang chế biến</span>
+                <h3 id="statCooking" class="text-2xl font-bold text-blue-600">0</h3>
+            </div>
+            <div class="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+                <span class="text-gray-500 text-sm">Đã lên món</span>
+                <h3 id="statServed" class="text-2xl font-bold text-green-600">0</h3>
+            </div>
+            <div class="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+                <span class="text-gray-500 text-sm">Tổng đơn thanh toán</span>
+                <h3 id="statPaidCount" class="text-2xl font-bold text-purple-600">0</h3>
+            </div>
+            <div class="bg-white p-4 rounded-xl border border-gray-200 shadow-sm sm:col-span-2 md:col-span-1 bg-orange-50 border-orange-200">
+                <span class="text-orange-700 text-sm font-medium">Doanh thu thực tế</span>
+                <h3 id="statTotalRevenue" class="text-xl font-bold text-orange-600">0 đ</h3>
+            </div>
+        </div>
+
+        <div id="kitchenOrdersList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+    </div>
+
+    <!-- GIỎ HÀNG SLIDE-OVER -->
+    <div id="cartModal" class="fixed inset-0 z-50 overflow-hidden hidden no-print">
+        <div class="absolute inset-0 bg-black/50 transition-opacity" onclick="toggleCartModal(false)"></div>
+        <div class="absolute inset-y-0 right-0 max-w-full flex pl-10">
+            <div class="w-screen max-w-md bg-white shadow-xl flex flex-col">
+                <div class="p-4 border-b flex items-center justify-between bg-gray-50">
+                    <h2 class="font-bold text-lg"><i class="fa-solid fa-basket-shopping mr-2"></i> Giỏ Hàng Của Bạn</h2>
+                    <button onclick="toggleCartModal(false)" class="text-gray-400 hover:text-gray-600 p-2"><i class="fa-solid fa-xmark text-lg"></i></button>
+                </div>
+
+                <div id="cartItemsContainer" class="flex-1 overflow-y-auto p-4 space-y-3"></div>
+
+                <!-- KHUNG NHẬP THÔNG TIN KHÁCH HÀNG & THANH TOÁN -->
+                <div class="border-t p-4 bg-gray-50 space-y-3">
+                    <div class="bg-white p-3 rounded-xl border border-orange-200 space-y-2 shadow-sm">
+                        <p class="text-xs font-bold text-gray-700 uppercase">
+                            <i class="fa-solid fa-user-tag text-orange-500 mr-1"></i> Thông tin khách hàng <span class="text-red-500">*</span>
+                        </p>
+                        <input type="text" id="customerNameInput" required placeholder="Tên khách hàng (Bắt buộc)..." value="Anh Linh" class="w-full border border-gray-300 px-3 py-2 rounded-lg text-sm focus:outline-none focus:border-			orange-500">
+                        <input type="tel" id="customerPhoneInput" required placeholder="Số điện thoại (Bắt buộc)..." value="0907057154" class="w-full border border-gray-300 px-3 py-2 rounded-lg text-sm focus:outline-none focus:border-			orange-500">
+                        <input type="text" id="customerDeliverInput" required placeholder="Giao đến..." value="C1109" class="w-full border border-gray-300 px-3 py-2 rounded-lg text-sm focus:outline-none focus:border-orange-500">
+                    </div>
+
+                    <div class="flex justify-between text-sm">
+                        <span class="text-gray-500">Tạm tính:</span>
+                        <span id="cartSubtotal" class="font-medium">0 đ</span>
+                    </div>
+                    <div class="flex justify-between text-base font-bold pb-1">
+                        <span>Tổng cộng:</span>
+                        <span id="cartTotal" class="text-orange-600">0 đ</span>
+                    </div>
+                    <div class="pt-1">
+                        <button onclick="openPaymentQRModal()" class="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-xl font-bold transition text-sm shadow-md flex items-center justify-center">
+                            <i class="fa-solid fa-qrcode mr-2"></i> Tiếp tục (Quét Mã QR)
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL THANH TOÁN & HÓA ĐƠN QR -->
+    <div id="paymentModal" class="fixed inset-0 z-50 overflow-hidden hidden flex items-center justify-center px-4">
+        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm no-print" onclick="togglePaymentModal(false)"></div>
+        <div id="printableInvoice" class="relative bg-white w-full max-w-xl rounded-3xl shadow-2xl z-10 overflow-hidden flex flex-col max-h-[90vh]">
+            <div class="bg-orange-500 text-white p-5 text-center relative">
+                <button onclick="togglePaymentModal(false)" class="absolute top-4 right-4 text-white/80 hover:text-white p-2 no-print"><i class="fa-solid fa-xmark text-xl"></i></button>
+                <h3 class="text-xl font-bold tracking-wider">Kaolin Dessert</h3>
+                <p class="text-sm opacity-90 mt-0.5">C11.09 - Chung cư Tecco Bình Tân - 4449 Nguyễn Cửu Phú - Tân Tạo - TPHCM</p>
+            </div>
+            <div class="p-6 overflow-y-auto space-y-4 flex-1">
+                <div class="flex justify-between text-xs text-gray-500 border-b pb-2">
+                    <span>Mã GD: <strong id="payInvoiceId" class="text-gray-700">#ORD-0000</strong></span>
+                    <span>Số Bàn: <strong id="payTableInfo" class="text-gray-700">Take away 01</strong></span>
+                    <span>Thời gian: <strong id="payTime" class="text-gray-700">00:00</strong></span>
+                </div>
+                <!-- Thông tin khách hàng trên hóa đơn -->
+                <div class="flex flex-wrap justify-between gap-2 text-xs text-gray-600 bg-gray-50 px-3 py-2 rounded-lg border">
+                    <span>Khách hàng: <strong id="payCustomerName" class="text-gray-800">Khách lẻ</strong></span>
+                    <span>SĐT: <strong id="payCustomerPhone" class="text-gray-800">Không có</strong></span>
+                    <span>Giao đến: <strong id="payCustomerDeliver" class="text-gray-800">Tại quán</strong></span>
+                </div>
+                <div class="overflow-x-auto border rounded-xl">
+                    <table class="w-full text-left border-collapse text-xs">
+                        <thead>
+                            <tr class="bg-gray-100 text-gray-700 border-b">
+                                <th class="p-2.5 text-center w-10">STT</th>
+                                <th class="p-2.5">Tên hàng</th>
+                                <th class="p-2.5 text-center w-12">SL</th>
+                                <th class="p-2.5 text-right">Đ.Giá</th>
+                                <th class="p-2.5 text-right">T.Tiền</th>
+                            </tr>
+                        </thead>
+                        <tbody id="payTableBody" class="divide-y divide-gray-100"></tbody>
+                    </table>
+                </div>
+                <div class="space-y-1.5 text-sm bg-gray-50 p-3 rounded-xl border">
+                    <div class="flex justify-between text-gray-600 text-xs"><span>Tạm tính:</span><span id="paySubtotal">0 đ</span></div>
+                    <div class="flex justify-between text-sm font-bold text-gray-800 pt-2 border-t"><span>Tổng thanh toán:</span><span id="payTotal" class="text-orange-600 text-base">0 đ</span></div>
+                </div>
+                <div class="bg-orange-50 border border-orange-200 rounded-2xl p-4 text-center">
+                    <p class="text-xs font-bold text-orange-800 mb-2"><i class="fa-solid fa-qrcode mr-1"></i> Quét mã QR chuyển khoản</p>
+                    <div class="bg-white p-2.5 inline-block rounded-xl shadow-sm border">
+                        <img id="vietQRImage" src="" alt="Mã QR Thanh Toán" class="w-32 h-32 object-contain mx-auto">
+                    </div>
+                    <p class="text-[11px] text-gray-600 mt-1.5">BIDV | STK: <strong>3170076328</strong></p>
+                    <p class="text-[11px] text-orange-700 font-medium">Nội dung: <span id="payTransferContent" class="font-bold">TT Take away 01</span></p>
+                </div>
+            </div>
+            <div class="p-4 bg-gray-50 border-t flex space-x-2 no-print">
+                <button id="btnPrintInvoice" onclick="printInvoice()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 rounded-xl font-bold transition text-sm flex items-center justify-center shadow-md hidden">
+                    <i class="fa-solid fa-print mr-1.5"></i> In Hóa Đơn
+                </button>
+                <button onclick="togglePaymentModal(false)" class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 py-3 rounded-xl font-bold transition text-sm">Đóng</button>
+                <button id="btnConfirmPaymentAction" onclick="confirmPaymentSuccess()" class="flex-1 bg-green-600 hover:bg-green-700 text-white py-3 rounded-xl font-bold transition text-sm shadow-lg">Xác Nhận Đặt Hàng</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL QUẢN LÝ THỰC ĐƠN (THÊM / XÓA MÓN) -->
+    <div id="menuManagerModal" class="fixed inset-0 z-50 overflow-hidden hidden flex items-center justify-center px-4">
+        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick="toggleMenuManagerModal(false)"></div>
+        <div class="relative bg-white w-full max-w-2xl rounded-3xl shadow-2xl z-10 overflow-hidden flex flex-col max-h-[90vh]">
+            <div class="bg-purple-600 text-white p-5 flex justify-between items-center">
+                <h3 class="text-lg font-bold"><i class="fa-solid fa-burger mr-2"></i> Thêm & Quản Lý Món Ăn</h3>
+                <button onclick="toggleMenuManagerModal(false)" class="text-white/80 hover:text-white p-2"><i class="fa-solid fa-xmark text-xl"></i></button>
+            </div>
+            <div class="p-6 overflow-y-auto space-y-6 flex-1">
+                <div class="bg-gray-50 p-4 rounded-2xl border border-gray-200 space-y-3">
+                    <h4 class="font-bold text-sm text-gray-700"><i class="fa-solid fa-plus-circle text-purple-600 mr-1"></i> Thêm Món Ăn Mới (Lưu Vào Sheet Menu)</h4>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <input type="text" id="newDishName" placeholder="Tên món ăn..." class="border px-3 py-2 rounded-xl text-sm focus:outline-none focus:border-purple-500">
+                        <select id="newDishCategory" class="border px-3 py-2 rounded-xl text-sm focus:outline-none focus:border-purple-500">
+                            <option value="main">Món chính</option>
+                            <option value="appetizer">Khai vị</option>
+                            <option value="drink">Đồ uống</option>
+                            <option value="dessert">Tráng miệng</option>
+                        </select>
+                        <input type="number" id="newDishPrice" placeholder="Giá tiền (đ)..." class="border px-3 py-2 rounded-xl text-sm focus:outline-none focus:border-purple-500">
+                        <input type="text" id="newDishImage" placeholder="Link hình ảnh (URL)..." class="border px-3 py-2 rounded-xl text-sm focus:outline-none focus:border-purple-500">
+                    </div>
+                    <textarea id="newDishDesc" placeholder="Mô tả ngắn về món ăn..." class="w-full border px-3 py-2 rounded-xl text-sm focus:outline-none focus:border-purple-500" rows="2"></textarea>
+                    <button onclick="addNewDish()" class="w-full bg-purple-600 hover:bg-purple-700 text-white py-2.5 rounded-xl text-sm font-bold transition shadow-sm">Lưu & Thêm Món Vào Sheet Menu</button>
+                </div>
+
+                <div>
+                    <h4 class="font-bold text-sm text-gray-700 mb-3"><i class="fa-solid fa-list text-purple-600 mr-1"></i> Danh Sách Món Hiện Tại</h4>
+                    <div id="manageDishList" class="space-y-2 max-h-60 overflow-y-auto pr-1"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- LOGIC JAVASCRIPT -->
+    
+  <!-- LOGIC JAVASCRIPT HOÀN CHỈNH -->
+    <script>
+        const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbz_z3_T0acgQ2WOARxgSS9TrWCCtA1SVbC-E3J5OMrXKTB5gR_cicq7aCE1_cK2Q8DW4g/exec";
+
+        let menuItems = [];
+
+        let state = {
+            currentTable: "Take away 01",
+            customerName: "",
+            customerPhone: "",
+            customerDeliver: "",
+            activeCategory: "all",
+            searchQuery: "",
+            cart: [],
+            orders: [],
+            orderHistory: [],
+            notifications: [],
+	    currentReportData: [], // <-- Thêm biến này để lưu dữ liệu đang hiển thị trên bảng báo cáo
+            currentView: "customer",
+            userRole: "customer"
+        };
+
+        document.addEventListener("DOMContentLoaded", () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            state.userRole = urlParams.get('role') || 'customer';
+
+            const tableParam = urlParams.get('table');
+            if (tableParam) {
+                state.currentTable = decodeURIComponent(tableParam);
+                const tableDisplay = document.getElementById("currentTableDisplay");
+                if (tableDisplay) tableDisplay.innerText = state.currentTable;
+
+                const tableSelector = document.getElementById("tableSelector");
+                if (tableSelector) {
+                    tableSelector.value = state.currentTable;
+                    if (tableSelector.value !== state.currentTable) {
+                        let opt = document.createElement('option');
+                        opt.value = state.currentTable;
+                        opt.innerText = state.currentTable;
+                        tableSelector.appendChild(opt);
+                        tableSelector.value = state.currentTable;
+                    }
+                }
+            }
+
+            applyRolePermissions();
+            fetchMenuFromGoogleSheets();
+            //startAutoCheckNewOrders();
+	    
+	    // --- THÊM 2 DÒNG NÀY ĐỂ TỰ ĐỘNG QUÉT ĐƠN NGAY KHI LOAD LẠI TRANG ---
+            if (state.userRole === 'kitchen' || state.userRole === 'admin')
+	    {
+                checkForNewOrdersFromSheet(false); 
+            }            
+            startAutoCheckNewOrders(); // Bắt đầu vòng lặp quét định kỳ 15 giây
+			
+        });
+
+        function fetchMenuFromGoogleSheets() {
+            if (!GOOGLE_SCRIPT_URL) return;
+
+            fetch(`${GOOGLE_SCRIPT_URL}?target=menu`)
+                .then(response => response.json())
+                .then(result => {
+                    if (result.status === "success" && result.data && result.data.length > 0) {
+                        menuItems = result.data.map((item, idx) => ({
+                            ...item,
+                            id: item.id !== undefined && item.id !== "" ? `${item.id}_${idx}` : `dish_${idx}`,
+                            rawId: item.id
+                        }));
+                    } else {
+                        menuItems = [
+                            { id: "1_0", rawId: 1, name: "Phở Bò Đặc Biệt", category: "main", price: 65000, image: "https://images.unsplash.com/photo-1582878826629-29b7ad1cdc43?w=500", description: "Thịt bò tái tươi ngon" },
+                            { id: "2_1", rawId: 2, name: "Cơm Sườn Bì Chả", category: "main", price: 55000, image: "https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=500", description: "Sườn nướng mật ong" }
+                        ];
+                    }
+                    if (state.userRole !== 'kitchen') {
+                        renderMenu();
+                    }
+                })
+                .catch(err => {
+                    console.error("Lỗi tải thực đơn:", err);
+                    document.getElementById("menuGrid").innerHTML = `<div class="col-span-full text-center py-10 text-red-500">Không thể kết nối lấy thực đơn.</div>`;
+                });
+        }
+
+        function applyRolePermissions() {
+            const btnExcel = document.getElementById("btnExcel");
+            const btnViewToggle = document.getElementById("btnViewToggle");
+            const cartBtn = document.getElementById("cartBtn");
+            const btnPrintInvoice = document.getElementById("btnPrintInvoice");
+            const btnMenuManager = document.getElementById("btnMenuManager");
+
+            if (state.userRole === 'customer') {
+                if (btnExcel) btnExcel.classList.add("hidden");
+                if (btnViewToggle) btnViewToggle.classList.add("hidden");
+                if (cartBtn) cartBtn.classList.remove("hidden");
+                if (btnPrintInvoice) btnPrintInvoice.classList.add("hidden");
+                if (btnMenuManager) btnMenuManager.classList.add("hidden");
+            } else if (state.userRole === 'kitchen') {
+                if (btnExcel) btnExcel.classList.add("hidden");
+                if (btnViewToggle) btnViewToggle.classList.add("hidden");
+                if (cartBtn) cartBtn.classList.add("hidden");
+                if (btnPrintInvoice) btnPrintInvoice.classList.add("hidden");
+                if (btnMenuManager) btnMenuManager.classList.add("hidden");
+
+                document.getElementById("customerView").classList.add("hidden");
+                document.getElementById("kitchenView").classList.remove("hidden");
+                state.currentView = "kitchen";
+                renderKitchenOrders();
+                checkForNewOrdersFromSheet(false); // Tự động nạp đơn ngay khi mở trang bếp
+            } else if (state.userRole === 'admin') {
+                if (btnExcel) btnExcel.classList.remove("hidden");
+                if (btnViewToggle) btnViewToggle.classList.remove("hidden");
+                if (cartBtn) cartBtn.classList.remove("hidden");
+                if (btnPrintInvoice) btnPrintInvoice.classList.remove("hidden");
+                if (btnMenuManager) btnMenuManager.classList.remove("hidden");
+            }
+        }
+
+        function renderMenu() {
+            const grid = document.getElementById("menuGrid");
+            grid.innerHTML = "";
+
+            const filtered = menuItems.filter(item => {
+                const matchesCategory = state.activeCategory === "all" || item.category === state.activeCategory;
+                const matchesSearch = item.name.toLowerCase().includes(state.searchQuery.toLowerCase());
+                return matchesCategory && matchesSearch;
+            });
+
+            if (filtered.length === 0) {
+                grid.innerHTML = `<div class="col-span-full text-center py-10 text-gray-400">Không tìm thấy món ăn phù hợp.</div>`;
+                return;
+            }
+
+            filtered.forEach(item => {
+                const card = document.createElement("div");
+                card.className = "bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm hover:shadow-md transition flex flex-col";
+                card.innerHTML = `
+                    <div class="h-40 overflow-hidden bg-gray-100 relative">
+                        <img src="${item.image}" alt="${item.name}" class="w-full h-full object-cover">
+                    </div>
+                    <div class="p-4 flex-1 flex flex-col justify-between">
+                        <div>
+                            <h3 class="font-bold text-gray-800 mb-1">${item.name}</h3>
+                            <p class="text-xs text-gray-500 line-clamp-2 mb-3">${item.description}</p>
+                        </div>
+                        <div class="flex items-center justify-between pt-2 border-t border-gray-100">
+                            <span class="font-bold text-orange-600">${Number(item.price).toLocaleString()} đ</span>
+                            <button onclick="addToCart('${item.id}')" class="bg-orange-50 hover:bg-orange-500 text-orange-600 hover:text-white p-2 rounded-xl transition text-sm">
+                                <i class="fa-solid fa-plus"></i>
+                            </button>
+                        </div>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        function filterCategory(category) {
+            state.activeCategory = category;
+            document.querySelectorAll(".cat-btn").forEach(btn => {
+                if (btn.dataset.cat === category) {
+                    btn.className = "cat-btn px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap bg-orange-500 text-white transition";
+                } else {
+                    btn.className = "cat-btn px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap bg-white text-gray-600 border border-gray-200 transition";
+                }
+            });
+            renderMenu();
+        }
+
+        function handleSearch(e) {
+            state.searchQuery = e.target.value;
+            renderMenu();
+        }
+
+        function changeTable(e) {
+            state.currentTable = e.target.value;
+            document.getElementById("currentTableDisplay").innerText = state.currentTable;
+        }
+
+        // --- GIỎ HÀNG ---
+        function addToCart(itemId) {
+            const item = menuItems.find(i => String(i.id) === String(itemId));
+            if (!item) return;
+
+            const existing = state.cart.find(c => String(c.item.id) === String(itemId));
+            if (existing) {
+                existing.quantity += 1;
+            } else {
+                state.cart.push({ item: item, quantity: 1 });
+            }
+            updateCartUI();
+        }
+
+        function updateCartUI() {
+            const badge = document.getElementById("cartBadge");
+            const container = document.getElementById("cartItemsContainer");
+            const totalCount = state.cart.reduce((sum, i) => sum + i.quantity, 0);
+
+            if (totalCount > 0) {
+                badge.innerText = totalCount;
+                badge.classList.remove("hidden");
+            } else {
+                badge.classList.add("hidden");
+            }
+
+            container.innerHTML = "";
+            if (state.cart.length === 0) {
+                container.innerHTML = `<div class="text-center py-20 text-gray-400">Giỏ hàng trống</div>`;
+                document.getElementById("cartSubtotal").innerText = "0 đ";
+                document.getElementById("cartTotal").innerText = "0 đ";
+                return;
+            }
+
+            let subtotal = 0;
+            state.cart.forEach((cartItem, index) => {
+                const lineTotal = Number(cartItem.item.price) * cartItem.quantity;
+                subtotal += lineTotal;
+
+                const div = document.createElement("div");
+                div.className = "flex items-center justify-between bg-gray-50 p-3 rounded-xl border border-gray-200";
+                div.innerHTML = `
+                    <div class="pr-2">
+                        <h4 class="font-bold text-sm text-gray-800">${cartItem.item.name}</h4>
+                        <span class="text-xs text-orange-600 font-medium">${Number(cartItem.item.price).toLocaleString()} đ × ${cartItem.quantity} = ${lineTotal.toLocaleString()} đ</span>
+                    </div>
+                    <div class="flex items-center space-x-2 shrink-0">
+                        <button onclick="changeQuantity(${index}, -1)" class="w-7 h-7 bg-white border rounded-lg flex items-center justify-center text-xs font-bold hover:bg-gray-100">-</button>
+                        <span class="text-sm font-bold w-5 text-center">${cartItem.quantity}</span>
+                        <button onclick="changeQuantity(${index}, 1)" class="w-7 h-7 bg-white border rounded-lg flex items-center justify-center text-xs font-bold hover:bg-gray-100">+</button>
+                    </div>
+                `;
+                container.appendChild(div);
+            });
+
+            document.getElementById("cartSubtotal").innerText = subtotal.toLocaleString() + " đ";
+            document.getElementById("cartTotal").innerText = subtotal.toLocaleString() + " đ";
+        }
+
+        function changeQuantity(index, delta) {
+            state.cart[index].quantity += delta;
+            if (state.cart[index].quantity <= 0) {
+                state.cart.splice(index, 1);
+            }
+            updateCartUI();
+        }
+
+        function toggleCartModal(show) {
+            const modal = document.getElementById("cartModal");
+            if (show) modal.classList.remove("hidden");
+            else modal.classList.add("hidden");
+        }
+
+        // --- GỬI ĐƠN HÀNG LÊN GOOGLE SHEETS ---
+        function sendOrderToGoogleSheet(orderData) {
+            if (!GOOGLE_SCRIPT_URL) return;
+            let itemsArray = orderData.items.map(i => ({
+                name: i.item.name,
+                quantity: i.quantity,
+                price: Number(i.item.price),
+                thanhTien: i.quantity * Number(i.item.price)
+            }));
+            const formData = new URLSearchParams();
+            formData.append("action", "saveOrder");
+            formData.append("date", orderData.date);
+            formData.append("time", orderData.time);
+            formData.append("orderId", orderData.id);
+            formData.append("table", orderData.table);
+            formData.append("customerName", orderData.customerName);
+            formData.append("customerPhone", orderData.customerPhone);
+            formData.append("customerDeliver", orderData.customerDeliver);
+            formData.append("itemsJson", JSON.stringify(itemsArray));
+            formData.append("status", orderData.status === 'paid' ? 'Đặt hàng thành công' : 'Chờ xử lý');
+
+            fetch(GOOGLE_SCRIPT_URL, { method: "POST", mode: "no-cors", body: formData })
+                .catch(err => console.error("Lỗi đồng bộ dữ liệu:", err));
+        }
+
+        // --- THANH TOÁN & QR ---
+        function openPaymentQRModal() {
+            if (state.cart.length === 0) {
+                alert("Giỏ hàng trống! Vui lòng chọn món trước.");
+                return;
+            }
+
+            const nameEl = document.getElementById("customerNameInput");
+            const phoneEl = document.getElementById("customerPhoneInput");
+            const deliverEl = document.getElementById("customerDeliverInput");
+
+            const nameInput = nameEl.value.trim();
+            const phoneInput = phoneEl.value.trim().replace(/\s+/g, '');
+            const deliverInput = deliverEl.value.trim();
+
+            if (!nameInput) {
+                alert("Vui lòng nhập Tên khách hàng trước khi đặt món!");
+                nameEl.focus();
+                return;
+            }
+            if (!phoneInput || !/^0\d{9,10}$/.test(phoneInput)) {
+                alert("Số điện thoại không hợp lệ! Vui lòng nhập đúng 10-11 chữ số.");
+                phoneEl.focus();
+                return;
+            }
+
+            state.customerName = nameInput;
+            state.customerPhone = phoneInput;
+            state.customerDeliver = deliverInput || "Tại quán";
+
+            let total = state.cart.reduce((sum, i) => sum + (Number(i.item.price) * i.quantity), 0);
+            let invoiceId = "ORD-" + Math.floor(1000 + Math.random() * 9000);
+            let currentTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+            document.getElementById("payTableInfo").innerText = state.currentTable;
+            document.getElementById("payInvoiceId").innerText = invoiceId;
+            document.getElementById("payTime").innerText = currentTime;
+            document.getElementById("payCustomerName").innerText = state.customerName;
+            document.getElementById("payCustomerPhone").innerText = state.customerPhone;
+            document.getElementById("payCustomerDeliver").innerText = state.customerDeliver;
+            document.getElementById("paySubtotal").innerText = total.toLocaleString() + " đ";
+            document.getElementById("payTotal").innerText = total.toLocaleString() + " đ";
+            document.getElementById("payTransferContent").innerText = `TT ${state.currentTable} ${invoiceId}`;
+
+            const tableBody = document.getElementById("payTableBody");
+            tableBody.innerHTML = "";
+            state.cart.forEach((cartItem, index) => {
+                let thanhTien = Number(cartItem.item.price) * cartItem.quantity;
+                const tr = document.createElement("tr");
+                tr.innerHTML = `
+                    <td class="p-2.5 text-center text-gray-500">${index + 1}</td>
+                    <td class="p-2.5 font-medium text-gray-800">${cartItem.item.name}</td>
+                    <td class="p-2.5 text-center">${cartItem.quantity}</td>
+                    <td class="p-2.5 text-right">${Number(cartItem.item.price).toLocaleString()}</td>
+                    <td class="p-2.5 text-right font-bold text-gray-800">${thanhTien.toLocaleString()}</td>
+                `;
+                tableBody.appendChild(tr);
+            });
+
+            const btnConfirm = document.getElementById("btnConfirmPaymentAction");
+            if (btnConfirm) btnConfirm.style.display = "block";
+
+            let qrUrl = `https://img.vietqr.io/image/BIDV-3170076328-compact2.png?amount=${Math.round(total)}&addInfo=TT%20${encodeURIComponent(state.currentTable)}%20${invoiceId}&accountName=CAO%20HOAI%20LINH`;
+            document.getElementById("vietQRImage").src = qrUrl;
+
+            toggleCartModal(false);
+            document.getElementById("paymentModal").classList.remove("hidden");
+        }
+
+        function togglePaymentModal(show) {
+            const modal = document.getElementById("paymentModal");
+            if (show) modal.classList.remove("hidden");
+            else modal.classList.add("hidden");
+        }
+
+        function printInvoice() { window.print(); }
+
+        function confirmPaymentSuccess() {
+            if (state.cart.length === 0) return;
+            let total = state.cart.reduce((sum, i) => sum + (Number(i.item.price) * i.quantity), 0);
+            const orderId = document.getElementById("payInvoiceId").innerText || ("ORD-" + Math.floor(1000 + Math.random() * 9000));
+
+            const paidOrder = {
+                id: orderId,
+                table: state.currentTable,
+                customerName: state.customerName,
+                customerPhone: state.customerPhone,
+                customerDeliver: state.customerDeliver,
+                items: [...state.cart],
+                subtotal: total,
+                total: total,
+                status: "pending",
+                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                date: new Date().toLocaleDateString('vi-VN')
+            };
+
+            state.orders.push(paidOrder);
+            state.orderHistory.push({ ...paidOrder, status: "paid" });
+            sendOrderToGoogleSheet({ ...paidOrder, status: "paid" });
+
+            alert(`Đặt hàng thành công cho đơn hàng: ${paidOrder.id}`);
+
+            state.cart = [];
+            updateCartUI();
+            togglePaymentModal(false);
+            if (state.currentView === 'kitchen') renderKitchenOrders();
+        }
+
+        // --- TRA CỨU & IN LẠI HÓA ĐƠN ---
+        function fetchAndPrintOldInvoice(inputId = 'navSearchOrderInput') {
+            const inputEl = document.getElementById(inputId);
+            let searchId = inputEl ? inputEl.value.trim() : "";
+            if (!searchId) {
+                alert("Vui lòng nhập mã đơn hàng cần tìm!");
+                return;
+            }
+
+            alert("Đang kết nối lấy dữ liệu...");
+
+            fetch(`${GOOGLE_SCRIPT_URL}?target=orders`)
+                .then(response => response.json())
+                .then(result => {
+                    if (result.status === "success") {
+                        let allRows = result.data;
+                        let matchedRows = allRows.filter(r => r.orderId && r.orderId.toLowerCase() === searchId.toLowerCase());
+
+                        if (matchedRows.length === 0) {
+                            alert("Không tìm thấy mã đơn hàng: " + searchId);
+                            return;
+                        }
+
+                        let firstRow = matchedRows[0];
+                        let itemsList = matchedRows.map(r => ({
+                            item: { name: r.itemName, price: Number(r.price) },
+                            quantity: Number(r.quantity)
+                        }));
+
+                        let total = matchedRows.reduce((sum, r) => sum + (Number(r.price) * Number(r.quantity)), 0);
+
+                        // Hàm làm sạch chuỗi ngày tháng (bỏ phần T00:00:00.000Z)
+                        function formatCleanDate(rawDate) {
+                            if (!rawDate) return "";
+                            let dateStr = String(rawDate);
+                            if (dateStr.includes('T')) {
+                                return dateStr.split('T')[0];
+                            }
+                            let parts = dateStr.split('/');
+                            if (parts.length === 3) {
+                                return `${parts[2]}-${parts[1]}-${parts[0]}`;
+                            }
+                            return dateStr.substring(0, 10);
+                        }
+
+                        let cleanDate = formatCleanDate(firstRow.date);
+
+                        document.getElementById("payTableInfo").innerText = firstRow.table;
+                        document.getElementById("payInvoiceId").innerText = firstRow.orderId;
+                        // Hiển thị thời gian kết hợp ngày đã làm sạch
+                        document.getElementById("payTime").innerText = firstRow.time + " - " + cleanDate;
+                        document.getElementById("payCustomerName").innerText = firstRow.customerName || "Khách lẻ";
+                        document.getElementById("payCustomerPhone").innerText = firstRow.customerPhone || "Không có";
+                        document.getElementById("payCustomerDeliver").innerText = firstRow.customerDeliver || "Tại quán";
+                        document.getElementById("paySubtotal").innerText = total.toLocaleString() + " đ";
+                        document.getElementById("payTotal").innerText = total.toLocaleString() + " đ";
+                        document.getElementById("payTransferContent").innerText = `TT ${firstRow.table} ${firstRow.orderId}`;
+
+                        const tableBody = document.getElementById("payTableBody");
+                        tableBody.innerHTML = "";
+                        itemsList.forEach((cartItem, index) => {
+                            let thanhTien = cartItem.item.price * cartItem.quantity;
+                            const tr = document.createElement("tr");
+                            tr.innerHTML = `
+                                <td class="p-2.5 text-center text-gray-500">${index + 1}</td>
+                                <td class="p-2.5 font-medium text-gray-800">${cartItem.item.name}</td>
+                                <td class="p-2.5 text-center">${cartItem.quantity}</td>
+                                <td class="p-2.5 text-right">${cartItem.item.price.toLocaleString()}</td>
+                                <td class="p-2.5 text-right font-bold text-gray-800">${thanhTien.toLocaleString()}</td>
+                            `;
+                            tableBody.appendChild(tr);
+                        });
+
+                        let qrUrl = `https://img.vietqr.io/image/BIDV-3170076328-compact2.png?amount=${Math.round(total)}&addInfo=TT%20${encodeURIComponent(firstRow.table)}%20${firstRow.orderId}&accountName=CAO%20HOAI%20LINH`;
+                        document.getElementById("vietQRImage").src = qrUrl;
+
+                        const btnConfirm = document.getElementById("btnConfirmPaymentAction");
+                        if (btnConfirm) btnConfirm.style.display = "none";
+
+                        document.getElementById("paymentModal").classList.remove("hidden");
+                    } else {
+                        alert("Lỗi khi đọc dữ liệu: " + result.message);
+                    }
+                })
+                .catch(err => {
+                    console.error(err);
+                    alert("Không thể kết nối dữ liệu.");
+                });
+        }
+
+        // --- HỘP THÔNG BÁO ĐƠN MỚI TRONG KITCHEN ---
+        let knownOrderIds = new Set();
+        let isInitialLoad = true;
+
+        function startAutoCheckNewOrders() {
+            setInterval(() => {
+                if (state.currentView !== 'kitchen') return;
+                checkForNewOrdersFromSheet(false);
+            }, 15000);
+        }
+
+        function manualCheckNewOrders() {
+            alert("Đang quét dữ liệu đơn hàng...");
+            checkForNewOrdersFromSheet(true);
+        }
+
+        function checkForNewOrdersFromSheet(isManual = false) {
+            fetch(`${GOOGLE_SCRIPT_URL}?target=orders`)
+                .then(response => response.json())
+                .then(result => {
+                    if (result.status === "success") {
+                        let allRows = result.data;
+                        if (!allRows || allRows.length === 0) {
+                            if (isManual) alert("Chưa có đơn hàng nào trên hệ thống.");
+                            return;
+                        }
+
+                        // Lấy danh sách các đơn đã hoàn thành thực sự từ localStorage
+                        let completedOrders = JSON.parse(localStorage.getItem('kaolin_completed_orders') || '[]');
+
+                        // Lưu lại trạng thái hiện tại đang có trên màn hình bếp (bảo vệ tuyệt đối 'cooking' và 'served')
+                        let existingOrdersMap = {};
+                        state.orders.forEach(o => { 
+                            existingOrdersMap[o.id] = o.status; 
+                        });
+
+                        let ordersObj = {};
+                        allRows.forEach(row => {
+                            if (!row.orderId) return;
+
+                            let currentStatus = row.status ? row.status.trim().toLowerCase() : "";
+                            
+                            // Chỉ bỏ qua khi đơn đã thực sự hoàn thành hoặc nằm trong localStorage
+                            if (completedOrders.includes(row.orderId) || currentStatus.includes("hoàn thành")) {
+                                return; 
+                            }
+
+                            if (!ordersObj[row.orderId]) {
+                                let assignedStatus = "pending";
+                                if (existingOrdersMap[row.orderId]) {
+                                    assignedStatus = existingOrdersMap[row.orderId]; // GIỮ NGUYÊN 'cooking' hoặc 'served'
+                                } else if (currentStatus.includes("lên món") || currentStatus.includes("phục vụ")) {
+                                    assignedStatus = "served";
+                                } else if (currentStatus.includes("đang chế biến")) {
+                                    assignedStatus = "cooking";
+                                }
+
+                                ordersObj[row.orderId] = {
+                                    id: row.orderId,
+                                    table: row.table,
+                                    customerName: row.customerName,
+                                    customerPhone: row.customerPhone,
+                                    customerDeliver: row.customerDeliver,
+                                    time: row.time,
+                                    date: row.date,
+                                    status: assignedStatus,
+                                    items: []
+                                };
+                            }
+                            ordersObj[row.orderId].items.push({
+                                item: { name: row.itemName, price: Number(row.price) },
+                                quantity: Number(row.quantity)
+                            });
+                        });
+
+                        let fetchedOrders = Object.values(ordersObj);
+
+                        // Cập nhật lại danh sách đơn trên bếp
+                        state.orders = fetchedOrders;
+                        renderKitchenOrders();
+
+                        // ĐIỀU CHỈNH: Đưa TẤT CẢ các đơn chưa hoàn thành (cả 'pending' và 'cooking') lên hộp thông báo
+                        let activeOrders = fetchedOrders.filter(o => o.status === 'pending' || o.status === 'cooking');
+                        state.notifications = [...activeOrders];
+                        renderNotificationCenter();
+
+                        if (isManual) {
+                            alert(`Đã quét xong! Hiện có ${state.orders.length} đơn đang xử lý.`);
+                        } else {
+                            // Kiểm tra đơn thực sự mới phát sinh để báo chuông
+                            let newlyArrived = fetchedOrders.filter(o => !knownOrderIds.has(o.id));
+                            if (newlyArrived.length > 0 && !isInitialLoad) {
+                                playNotificationSound();
+                            }
+                        }
+
+                        fetchedOrders.forEach(o => knownOrderIds.add(o.id));
+                        isInitialLoad = false;
+                    }
+                })
+                .catch(err => {
+                    console.error("Lỗi kiểm tra đơn:", err);
+                    if (isManual) alert("Không thể kết nối lấy dữ liệu.");
+                });
+        }
+
+        function playNotificationSound() {
+            try {
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioCtx.createOscillator();
+                const gainNode = audioCtx.createGain();
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
+                gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                oscillator.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+                oscillator.start();
+                oscillator.stop(audioCtx.currentTime + 0.3);
+            } catch (e) {}
+        }
+
+        function renderNotificationCenter() {
+            const listEl = document.getElementById("notifList");
+            const countEl = document.getElementById("notifCount");
+            if (!listEl || !countEl) return;
+
+            if (!state.notifications || state.notifications.length === 0) {
+                countEl.innerText = "0";
+                listEl.innerHTML = `<p class="text-xs text-amber-700 italic py-2 text-center">Chưa có thông báo đơn hàng mới. Bấm "Kiểm tra đơn mới" để quét dữ liệu.</p>`;
+                return;
+            }
+
+            countEl.innerText = state.notifications.length;
+            listEl.innerHTML = "";
+
+            state.notifications.forEach((ord, idx) => {
+                let div = document.createElement("div");
+                div.className = "flex items-center justify-between bg-white p-2.5 rounded-xl border border-amber-200 shadow-xs hover:bg-amber-50/50 transition";
+                div.innerHTML = `
+                    <div class="flex items-center space-x-3">
+                        <span class="bg-orange-500 text-white font-bold text-xs p-2 rounded-lg"><i class="fa-solid fa-receipt"></i></span>
+                        <div>
+                            <p class="text-xs font-bold text-gray-800">${ord.table} - Đơn: <span class="text-orange-600">${ord.id}</span></p>
+                            <p class="text-[11px] text-gray-500">Khách: ${ord.customerName || 'Khách lẻ'} (${ord.customerDeliver || 'Tại quán'}) | Lúc: ${ord.time}</p>
+                        </div>
+                    </div>
+                    <button onclick="focusOnOrder('${ord.id}', ${idx})" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow-xs flex items-center">
+                        <i class="fa-solid fa-eye mr-1"></i> Xem đơn
+                    </button>
+                `;
+                listEl.appendChild(div);
+            });
+        }
+
+        function focusOnOrder(orderId, notifIndex) {
+            if (state.notifications) {
+                state.notifications.splice(notifIndex, 1);
+                renderNotificationCenter();
+            }
+
+            let cards = document.querySelectorAll("#kitchenOrdersList > div");
+            cards.forEach(card => {
+                if (card.innerText.includes(orderId)) {
+                    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    card.classList.add("ring-4", "ring-orange-500", "transition-all", "duration-500");
+                    setTimeout(() => {
+                        card.classList.remove("ring-4", "ring-orange-500");
+                    }, 3000);
+                }
+            });
+        }
+
+        function clearAllNotifications() {
+            state.notifications = [];
+            renderNotificationCenter();
+        }
+
+        // --- BÁO CÁO DOANH THU TRỰC TIẾP ---
+        // --- 1. XEM BÁO CÁO DOANH THU TRỰC TIẾP & LƯU LẠI DỮ LIỆU ---
+        // --- HÀM XEM BÁO CÁO DOANH THU TRỰC TIẾP (Đã chuẩn hóa định dạng ngày YYYY-MM-DD) ---
+        function loadLiveRevenueReport() {
+            const startDateStr = document.getElementById("reportStartDate").value; // dạng yyyy-mm-dd từ input date
+            const endDateStr = document.getElementById("reportEndDate").value;     // dạng yyyy-mm-dd từ input date
+
+            alert("Đang kết nối lấy dữ liệu báo cáo...");
+
+            fetch(`${GOOGLE_SCRIPT_URL}?target=orders`)
+                .then(response => response.json())
+                .then(result => {
+                    if (result.status === "success") {
+                        let allRows = result.data;
+                        
+                        if (allRows.length === 0) {
+                            alert("Chưa có dữ liệu đơn hàng nào.");
+                            return;
+                        }
+
+                        // Hàm phụ trợ chuẩn hóa chuỗi ngày thành YYYY-MM-DD để hiển thị và lọc
+                        function formatCleanDate(rawDate) {
+                            if (!rawDate) return "";
+                            let dateStr = String(rawDate);
+                            // Nếu có chứa 'T' (dạng ISO 2026-11-13T00:00:00.000Z)
+                            if (dateStr.includes('T')) {
+                                return dateStr.split('T')[0];
+                            }
+                            // Nếu ở dạng DD/MM/YYYY thì đổi ngược lại thành YYYY-MM-DD để đồng bộ
+                            let parts = dateStr.split('/');
+                            if (parts.length === 3) {
+                                return `${parts[2]}-${parts[1]}-${parts[0]}`;
+                            }
+                            return dateStr.substring(0, 10); // Cắt lấy 10 ký tự đầu tiên phòng hờ
+                        }
+
+                        // Lọc dữ liệu theo khoảng thời gian chọn
+                        let filteredRows = allRows.filter(r => {
+                            if (!r.date) return false;
+                            let cleanOrderDate = formatCleanDate(r.date); // YYYY-MM-DD
+                            let orderDateObj = new Date(cleanOrderDate);
+
+                            let isValid = true;
+                            if (startDateStr) {
+                                let startDateObj = new Date(startDateStr);
+                                if (orderDateObj < startDateObj) isValid = false;
+                            }
+                            if (endDateStr) {
+                                let endDateObj = new Date(endDateStr);
+                                endDateObj.setHours(23, 59, 59, 999);
+                                if (orderDateObj > endDateObj) isValid = false;
+                            }
+                            return isValid;
+                        });
+
+                        const tbody = document.getElementById("liveReportTableBody");
+                        tbody.innerHTML = "";
+
+                        if (filteredRows.length === 0) {
+                            tbody.innerHTML = `<tr><td colspan="11" class="text-center py-8 text-gray-400">Không có dữ liệu trong khoảng thời gian đã chọn.</td></tr>`;
+                            document.getElementById("repTotalOrders").innerText = "0";
+                            document.getElementById("repTotalQty").innerText = "0";
+                            document.getElementById("repTotalRevenue").innerText = "0 đ";
+                            state.currentReportData = [];
+                            return;
+                        }
+
+                        // Lưu lại dữ liệu đã lọc để xuất Excel
+                        state.currentReportData = filteredRows;
+
+                        let totalRevenue = 0;
+                        let totalQty = 0;
+                        let uniqueOrders = new Set();
+
+                        filteredRows.forEach((r, index) => {
+                            let qty = Number(r.quantity) || 0;
+                            let price = Number(r.price) || 0;
+                            let thanhTien = Number(r.thanhTien) || (qty * price);
+
+                            totalRevenue += thanhTien;
+                            totalQty += qty;
+                            uniqueOrders.add(r.orderId);
+
+                            // Lấy ngày đã được làm sạch định dạng YYYY-MM-DD
+                            let displayDate = formatCleanDate(r.date);
+
+                            const tr = document.createElement("tr");
+                            tr.innerHTML = `
+                                <td class="p-2.5 text-center text-gray-500">${index + 1}</td>
+                                <td class="p-2.5">${displayDate}</td>
+                                <td class="p-2.5">${r.time}</td>
+                                <td class="p-2.5 font-bold text-gray-700">${r.orderId}</td>
+                                <td class="p-2.5">${r.table}</td>
+                                <td class="p-2.5">${r.customerName || "Khách lẻ"}</td>
+                                <td class="p-2.5 font-medium text-gray-800">${r.itemName}</td>
+                                <td class="p-2.5 text-center">${qty}</td>
+                                <td class="p-2.5 text-right">${price.toLocaleString()} đ</td>
+                                <td class="p-2.5 text-right font-bold text-orange-600">${thanhTien.toLocaleString()} đ</td>
+                                <td class="p-2.5 text-gray-600">${r.customerDeliver || "Tại quán"}</td>
+                            `;
+                            tbody.appendChild(tr);
+                        });
+
+                        document.getElementById("repTotalOrders").innerText = uniqueOrders.size;
+                        document.getElementById("repTotalQty").innerText = totalQty;
+                        document.getElementById("repTotalRevenue").innerText = totalRevenue.toLocaleString() + " đ";
+
+                        alert(`Đã tải thành công báo cáo với ${filteredRows.length} dòng dữ liệu!`);
+                    } else {
+                        alert("Lỗi đọc dữ liệu: " + result.message);
+                    }
+                })
+                .catch(err => {
+                    console.error(err);
+                    alert("Không thể kết nối dữ liệu.");
+                });
+        }
+
+        // --- QUẢN LÝ THỰC ĐƠN & BẾP ---
+        function toggleMenuManagerModal(show) {
+            const modal = document.getElementById("menuManagerModal");
+            if (show) {
+                modal.classList.remove("hidden");
+                renderManageDishList();
+            } else {
+                modal.classList.add("hidden");
+            }
+        }
+
+        function renderManageDishList() {
+            const container = document.getElementById("manageDishList");
+            container.innerHTML = "";
+            if (menuItems.length === 0) {
+                container.innerHTML = `<p class="text-xs text-gray-400 text-center py-4">Chưa có món ăn nào trong thực đơn.</p>`;
+                return;
+            }
+            menuItems.forEach((item) => {
+                const div = document.createElement("div");
+                div.className = "flex items-center justify-between bg-white p-3 rounded-xl border border-gray-200 shadow-sm";
+                div.innerHTML = `
+                    <div class="flex items-center space-x-3">
+                        <img src="${item.image}" alt="${item.name}" class="w-10 h-10 object-cover rounded-lg">
+                        <div>
+                            <h5 class="font-bold text-sm text-gray-800">${item.name}</h5>
+                            <span class="text-xs text-orange-600 font-medium">${Number(item.price).toLocaleString()} đ</span>
+                        </div>
+                    </div>
+                    <button onclick="deleteDish('${item.rawId}')" class="bg-red-50 hover:bg-red-500 text-red-600 hover:text-white px-3 py-1.5 rounded-lg text-xs font-bold transition">
+                        <i class="fa-solid fa-trash mr-1"></i> Xóa
+                    </button>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function addNewDish() {
+            const name = document.getElementById("newDishName").value.trim();
+            const category = document.getElementById("newDishCategory").value;
+            const price = parseFloat(document.getElementById("newDishPrice").value);
+            let image = document.getElementById("newDishImage").value.trim();
+            const description = document.getElementById("newDishDesc").value.trim();
+
+            if (!name || isNaN(price) || price <= 0) {
+                alert("Vui lòng nhập tên món và giá tiền hợp lệ!");
+                return;
+            }
+            if (!image) image = "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=500";
+            const newId = menuItems.length > 0 ? Math.max(...menuItems.map(i => Number(i.rawId) || 0)) + 1 : 1;
+
+            const formData = new URLSearchParams();
+            formData.append("action", "addDish");
+            formData.append("id", newId);
+            formData.append("name", name);
+            formData.append("category", category);
+            formData.append("price", price);
+            formData.append("image", image);
+            formData.append("description", description || "Món ăn ngon hấp dẫn.");
+
+            fetch(GOOGLE_SCRIPT_URL, { method: "POST", mode: "no-cors", body: formData })
+                .then(() => {
+                    alert("Đã gửi yêu cầu thêm món mới.");
+                    menuItems.push({ id: `${newId}_${menuItems.length}`, rawId: newId, name, category, price, image, description });
+                    document.getElementById("newDishName").value = "";
+                    document.getElementById("newDishPrice").value = "";
+                    document.getElementById("newDishImage").value = "";
+                    document.getElementById("newDishDesc").value = "";
+                    renderManageDishList();
+                    renderMenu();
+                })
+                .catch(err => alert("Lỗi khi thêm món: " + err));
+        }
+
+        function deleteDish(rawId) {
+            if (confirm("Bạn có chắc chắn muốn xóa món này khỏi Sheet Menu không?")) {
+                const formData = new URLSearchParams();
+                formData.append("action", "deleteDish");
+                formData.append("id", rawId);
+
+                fetch(GOOGLE_SCRIPT_URL, { method: "POST", mode: "no-cors", body: formData })
+                    .then(() => {
+                        alert("Đã xóa món khỏi menu.");
+                        menuItems = menuItems.filter(i => String(i.rawId) !== String(rawId));
+                        renderManageDishList();
+                        renderMenu();
+                    })
+                    .catch(err => alert("Lỗi khi xóa món: " + err));
+            }
+        }
+
+        // --- 2. XUẤT EXCEL LẤY TRỰC TIẾP TỪ DỮ LIỆU ĐÃ XEM TRÊN BẢNG ---
+        function exportOrdersToExcel() {
+            if (!state.currentReportData || state.currentReportData.length === 0) {
+                alert("Chưa có dữ liệu báo cáo hiển thị trên bảng! Vui lòng chọn khoảng thời gian và bấm 'Xem Báo Cáo' trước khi xuất Excel.");
+                return;
+            }
+
+            const excelData = state.currentReportData.map(r => ({
+                "Ngày đặt": r.date,
+                "Thời gian": r.time,
+                "Mã Đơn Hàng": r.orderId,
+                "Bàn": r.table,
+                "Tên Khách": r.customerName || "Khách lẻ",
+                "Số Điện Thoại": r.customerPhone || "",
+                "Tên Món": r.itemName,
+                "Số Lượng": Number(r.quantity) || 0,
+                "Đơn Giá (đ)": Number(r.price) || 0,
+                "Thành Tiền (đ)": (Number(r.quantity) || 0) * (Number(r.price) || 0),
+                "Trạng Thái": r.status || "",
+                "Giao Đến": r.customerDeliver || "Tại quán"
+            }));
+
+            const worksheet = XLSX.utils.json_to_sheet(excelData);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "BaoCaoDoanhThu");
+            XLSX.writeFile(workbook, `Bao_Cao_Doanh_Thu_${new Date().toISOString().slice(0, 10)}.xlsx`);
+
+            alert(`Đã xuất file Excel thành công với ${excelData.length} dòng dữ liệu từ bảng báo cáo!`);
+        }
+
+        function toggleView() {
+            const customerView = document.getElementById("customerView");
+            const kitchenView = document.getElementById("kitchenView");
+            const cartBtn = document.getElementById("cartBtn");
+            const btn = document.getElementById("btnViewToggle");
+
+            if (state.currentView === "customer") {
+                state.currentView = "kitchen";
+                customerView.classList.add("hidden");
+                kitchenView.classList.remove("hidden");
+                cartBtn.classList.add("hidden");
+                btn.innerHTML = `<i class="fa-solid fa-utensils mr-1"></i> Xem Menu`;
+                renderKitchenOrders();
+                checkForNewOrdersFromSheet(false);
+            } else {
+                state.currentView = "customer";
+                kitchenView.classList.add("hidden");
+                customerView.classList.remove("hidden");
+                if (state.userRole !== 'kitchen') cartBtn.classList.remove("hidden");
+                btn.innerHTML = `<i class="fa-solid fa-kitchen-set mr-1"></i> Vào Bếp`;
+            }
+        }
+
+        function renderKitchenOrders() {
+            const container = document.getElementById("kitchenOrdersList");
+            container.innerHTML = "";
+
+            let pendingCount = 0, cookingCount = 0, servedCount = 0, paidCount = 0, totalRevenue = 0;
+
+            state.orders.forEach(order => {
+                if (order.status === 'pending') pendingCount++;
+                if (order.status === 'cooking') cookingCount++;
+                if (order.status === 'served') servedCount++;
+                paidCount++;
+                totalRevenue += order.items.reduce((s, i) => s + (i.item.price * i.quantity), 0);
+            });
+
+            document.getElementById("statPending").innerText = pendingCount;
+            document.getElementById("statCooking").innerText = cookingCount;
+            document.getElementById("statServed").innerText = servedCount;
+            document.getElementById("statPaidCount").innerText = paidCount;
+            document.getElementById("statTotalRevenue").innerText = totalRevenue.toLocaleString() + " đ";
+
+            if (state.orders.length === 0) {
+                container.innerHTML = `<div class="col-span-full text-center py-20 text-gray-400">Chưa có đơn hàng nào chờ xử lý.</div>`;
+                return;
+            }
+
+            state.orders.forEach((order, index) => {
+                let statusBadge = "", actionBtn = "";
+                if (order.status === 'pending') {
+                    statusBadge = `<span class="bg-orange-100 text-orange-700 text-xs px-2 py-0.5 rounded-full font-medium">Chờ nấu</span>`;
+                    actionBtn = `<button onclick="updateOrderStatus(${index}, 'cooking')" class="w-full bg-blue-500 hover:bg-blue-600 text-white text-xs py-2 rounded-lg font-medium transition">Bắt Đầu Nấu</button>`;
+                } else if (order.status === 'cooking') {
+                    statusBadge = `<span class="bg-blue-100 text-blue-700 text-xs px-2 py-0.5 rounded-full font-medium">Đang chế biến</span>`;
+                    actionBtn = `<button onclick="updateOrderStatus(${index}, 'served')" class="w-full bg-green-500 hover:bg-green-600 text-white text-xs py-2 rounded-lg font-medium transition">Hoàn Tất / Phục Vụ</button>`;
+                } else {
+                    statusBadge = `<span class="bg-green-100 text-green-700 text-xs px-2 py-0.5 rounded-full font-medium">Đã lên món</span>`;
+                    actionBtn = `<button onclick="updateOrderStatus(${index}, 'done')" class="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs py-2 rounded-lg font-medium transition">Hoàn Tất & Xóa Đơn</button>`;
+                }
+
+                const card = document.createElement("div");
+                card.className = "bg-white rounded-2xl border border-gray-200 p-4 shadow-sm flex flex-col justify-between";
+                let itemsHtml = order.items.map(i => `<li class="text-sm text-gray-600 flex justify-between"><span>${i.item.name}</span> <span class="font-bold">x${i.quantity}</span></li>`).join('');
+
+                card.innerHTML = `
+                    <div>
+                        <div class="flex justify-between items-center mb-2">
+                            <span class="font-bold text-gray-800">${order.table} (${order.id})</span>
+                            ${statusBadge}
+                        </div>
+                        <div class="text-xs text-gray-500 mb-3 space-y-0.5">
+                            <div>Thời gian: ${order.time}</div>
+                            <div>Khách: <strong class="text-gray-700">${order.customerName || 'Khách lẻ'}</strong> (${order.customerPhone || ''})</div>
+                            <div>Giao đến: <strong class="text-gray-700">${order.customerDeliver || 'Tại quán'}</strong></div>
+                        </div>
+                        <ul class="space-y-1 mb-4 border-t border-b border-gray-100 py-3">${itemsHtml}</ul>
+                    </div>
+                    <div>${actionBtn}</div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        // --- HÀM CẬP NHẬT TRẠNG THÁI ĐƠN HÀNG VÀ ĐỒNG BỘ GOOGLE SHEETS ---
+        function updateOrderStatus(index, newStatus) {
+            let order = state.orders[index];
+            if (!order) return;
+
+            let statusText = "Chờ xử lý";
+            if (newStatus === 'cooking') {
+                statusText = "Đang chế biến";
+                order.status = 'cooking';
+            } else if (newStatus === 'served') {
+                statusText = "Đã lên món";
+                order.status = 'served';
+            } else if (newStatus === 'done') {
+                statusText = "Đã hoàn thành";
+                
+                // LỚP BẢO VỆ 1: Lưu ngay mã đơn vào localStorage để chặn load lại hiển thị
+                let completedOrders = JSON.parse(localStorage.getItem('kaolin_completed_orders') || '[]');
+                if (!completedOrders.includes(order.id)) {
+                    completedOrders.push(order.id);
+                    localStorage.setItem('kaolin_completed_orders', JSON.stringify(completedOrders));
+                }
+
+                // Xóa khỏi danh sách đang hiển thị trên bếp
+                state.orders.splice(index, 1);
+            }
+
+            // Gửi yêu cầu ngầm cập nhật trạng thái lên Google Sheets
+            if (GOOGLE_SCRIPT_URL) {
+                const formData = new URLSearchParams();
+                formData.append("action", "updateStatus");
+                formData.append("orderId", order.id);
+                formData.append("status", statusText);
+
+                fetch(GOOGLE_SCRIPT_URL, { method: "POST", mode: "no-cors", body: formData })
+                    .catch(err => console.error("Lỗi đồng bộ trạng thái:", err));
+            }
+
+            renderKitchenOrders();
+        }
+		
+    </script>
+</body>
+</html>
